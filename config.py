@@ -11,3 +11,7 @@ RECEIVER_EMAIL = "nithyasubhashini46@gmail.com"
 # Allowed check intervals (in seconds)
 ALLOWED_INTERVALS = [30, 60, 300, 600]  
 # 30s, 1min, 5min, 10min
+GOOGLE_CLIENT_ID = "292901270303-5ha3or178sacla9p5i36819tckm0klqs.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET = "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"
+
+

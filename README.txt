@@ -1,65 +1,134 @@
-# 🌐 Website Monitoring System (Flask + MySQL)
+🌐 Website Monitoring System
 
-## 📌 Project Description
-This project is a Website Monitoring System developed using Python (Flask) and MySQL.  
-It monitors multiple websites concurrently, detects status changes, logs them into a database, and sends email alerts when a website goes DOWN.
+A full-stack Website Monitoring System built with Flask, MySQL, and Google OAuth, allowing users to monitor websites, configure check intervals, and receive alerts when websites go down.
 
-The system is designed to be scalable, efficient, and aligned with real-world backend monitoring practices.
+🚀 Features
+✅ Authentication
 
----
+Google Login using OAuth 2.0
 
-## 🎯 Key Features
+Secure user-based access
 
-- Monitors multiple websites simultaneously (parallel execution)
-- Detects website status using:
-  - HTTP response code
-  - Expected page content (content validation)
-- Logs status changes into MySQL
-- Avoids duplicate database entries
-- Sends email alerts only when a website goes DOWN
-- Flask-based backend
-- Scalable for large number of websites
+Each user sees only their own monitored websites
 
----
+⚙️ Configuration Panel (Dashboard)
 
-## 🧠 Monitoring Logic
+Add websites from UI
 
-A website is considered DOWN if:
-- HTTP status code is not 200, OR
-- The expected text is not found in the webpage content (even if status code is 200)
+Choose monitoring intervals:
 
-This helps detect:
-- Server downtime
-- Maintenance pages
-- Logical failures where error pages return 200 OK
+30 sec
 
----
+1 min
 
-## 🗄️ Database Design
+5 min
 
-### Table: website_status_log
+10 min
 
-| Column Name   | Description |
-|--------------|------------|
-| id | Auto-increment primary key |
-| website_name | Name of the website |
-| old_status | Previous status (UP / DOWN / UNKNOWN) |
-| new_status | Current status (UP / DOWN) |
-| changed_at | Timestamp of status change |
+Delete websites from UI
 
-Only state changes are stored.  
-Repeated same states are not logged.
+📊 Monitoring
 
----
+Background website monitoring using APScheduler
 
-## ⚙️ Technologies Used
+Status tracking: UP / DOWN / UNKNOWN
 
-- Python 3
-- Flask
-- MySQL
-- mysql-connector-python
-- Requests library
-- SMTP (Gmail Email Alerts)
-- ThreadPoolExecutor (Concurrency)
+Last checked time shown on dashboard
+
+Status change logging in database
+
+📧 Alerts
+
+Automatic email alert when a website goes DOWN
+
+Alert sent only on status change
+
+🔒 Data Isolation
+
+Websites added by one user cannot be accessed by other users
+
+Monitoring is completely user-specific
+
+🛠️ Tech Stack
+Layer	Technology
+Backend	Flask (Python)
+Frontend	HTML, CSS (Jinja Templates)
+Authentication	Google OAuth (Authlib)
+Database	MySQL
+Scheduler	Flask-APScheduler
+Alerts	SMTP (Gmail)
+📂 Project Structure
+website_monitor/
+│
+├── app.py              # Main Flask application
+├── config.py           # DB & OAuth configuration
+├── requirements.txt    # Dependencies
+├── README.md
+│
+├── templates/
+│   └── dashboard.html  # Dashboard UI
+│
+└── static/
+    └── styles.css      # UI styling
+
+⚙️ Setup Instructions
+1️⃣ Clone Repository
+git clone https://github.com/<your-username>/website-monitoring-system.git
+cd website-monitoring-system
+
+2️⃣ Create Virtual Environment (Optional)
+python -m venv venv
+venv\Scripts\activate
+
+3️⃣ Install Dependencies
+pip install -r requirements.txt
+
+4️⃣ Configure config.py
+DB_CONFIG = {
+    "host": "localhost",
+    "user": "root",
+    "password": "your_password",
+    "database": "website_monitor"
+}
+
+GOOGLE_CLIENT_ID = "your_client_id"
+GOOGLE_CLIENT_SECRET = "your_client_secret"
+
+SENDER_EMAIL = "your_email@gmail.com"
+APP_PASSWORD = "gmail_app_password"
+RECEIVER_EMAIL = "receiver_email@gmail.com"
+
+ALLOWED_INTERVALS = [30, 60, 300, 600]
+
+🗄️ Database Tables
+monitored_websites
+id | website_name | url | interval_seconds | user_id
+
+website_status_log
+id | website_name | old_status | new_status | checked_at
+
+▶️ Run the Application
+python app.py
 
 
+Open browser:
+
+http://127.0.0.1:5000
+
+🧪 How to Test
+
+Login using Google
+
+Add a website from dashboard
+
+Choose interval
+
+Stop the website / use invalid URL
+
+Observe:
+
+Status change on UI
+
+Email alert
+
+Background logs in terminal
