@@ -5,19 +5,9 @@ DB_CONFIG = {
     "database": "website_monitor"
 }
 
-WEBSITES = [
-    {
-        "name": "Example",
-        "url": "https://example.com/404",
-        "expected_text": "Example Domain"
-    },
-    {
-        "name": "Google",
-        "url": "https://google.com",
-        "expected_text": "Google"
-    }
-]
-
 SENDER_EMAIL = "nithyasubhashini46@gmail.com"
 APP_PASSWORD = "pwvc szik dtkb tlzg"
 RECEIVER_EMAIL = "nithyasubhashini46@gmail.com"
+# Allowed check intervals (in seconds)
+ALLOWED_INTERVALS = [30, 60, 300, 600]  
+# 30s, 1min, 5min, 10min

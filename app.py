@@ -1,3 +1,4 @@
+import time
 import requests
 import mysql.connector
 import smtplib
@@ -5,7 +6,13 @@ from email.message import EmailMessage
 from flask import Flask
 from concurrent.futures import ThreadPoolExecutor
 
-from config import DB_CONFIG, WEBSITES, SENDER_EMAIL, APP_PASSWORD, RECEIVER_EMAIL
+from config import (
+    DB_CONFIG,
+    SENDER_EMAIL,
+    APP_PASSWORD,
+    RECEIVER_EMAIL,
+    ALLOWED_INTERVALS
+)
 
 app = Flask(__name__)
 
@@ -16,6 +23,28 @@ def get_db_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 # =========================
+# FETCH WEBSITES FROM DB
+# =========================
+def get_monitored_websites():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT website_name, url, interval_seconds
+            FROM monitored_websites
+        """)
+        websites = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+        return websites
+
+    except Exception as e:
+        print("Error fetching websites:", e)
+        return []
+
+# =========================
 # GET LAST STATUS FROM DB
 # =========================
 def get_last_status(website_name):
@@ -23,16 +52,13 @@ def get_last_status(website_name):
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT new_status
             FROM website_status_log
             WHERE website_name = %s
             ORDER BY id DESC
             LIMIT 1
-            """,
-            (website_name,)
-        )
+        """, (website_name,))
 
         result = cursor.fetchone()
         cursor.close()
@@ -52,13 +78,10 @@ def log_status_change(website, old_status, new_status):
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        cursor.execute(
-            """
+        cursor.execute("""
             INSERT INTO website_status_log (website_name, old_status, new_status)
             VALUES (%s, %s, %s)
-            """,
-            (website, old_status, new_status)
-        )
+        """, (website, old_status, new_status))
 
         conn.commit()
         cursor.close()
@@ -68,7 +91,7 @@ def log_status_change(website, old_status, new_status):
         print("DB Insert Error:", e)
 
 # =========================
-# EMAIL ALERT (ONLY WHEN DOWN)
+# EMAIL ALERT (ONLY ON DOWN)
 # =========================
 def send_email_alert(website):
     try:
@@ -82,8 +105,6 @@ Website Down Alert
 
 Website Name: {website}
 Current Status: DOWN
-
-Please take immediate action.
 """)
 
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
@@ -96,42 +117,27 @@ Please take immediate action.
         print("Email Error:", e)
 
 # =========================
-# DETERMINE WEBSITE STATUS
-# =========================
-def determine_status(response, expected_text):
-    # HTTP error
-    if response.status_code != 200:
-        return "DOWN"
-
-    # Content validation error
-    if expected_text and expected_text not in response.text:
-        return "DOWN"
-
-    return "UP"
-
-# =========================
 # CHECK SINGLE WEBSITE
 # =========================
 def check_website(site):
-    name = site["name"]
+    name = site["website_name"]
     url = site["url"]
-    expected_text = site.get("expected_text")
 
     try:
         response = requests.get(url, timeout=10)
-        current_status = determine_status(response, expected_text)
+        current_status = "UP" if response.status_code == 200 else "DOWN"
     except Exception:
         current_status = "DOWN"
 
     last_status = get_last_status(name)
 
-    # First run → baseline entry
+    # First run → baseline
     if last_status is None:
         log_status_change(name, "UNKNOWN", current_status)
-        print(f"{name}: Initial status logged as {current_status}")
+        print(f"{name}: Initial status = {current_status}")
         return
 
-    # State change detected
+    # State change only
     if last_status != current_status:
         log_status_change(name, last_status, current_status)
 
@@ -139,17 +145,42 @@ def check_website(site):
             send_email_alert(name)
 
         print(f"{name}: {last_status} → {current_status}")
-
     else:
         print(f"{name}: {current_status} (No change)")
 
 # =========================
-# PARALLEL WEBSITE CHECK
+# INTERVAL TRACKING
+# =========================
+last_checked = {}
+
+# =========================
+# MAIN CHECK LOOP
 # =========================
 def check_websites():
     print("\n🔍 Checking websites...")
+
+    websites = get_monitored_websites()
+    current_time = time.time()
+    sites_to_check = []
+
+    for site in websites:
+        name = site["website_name"]
+        interval = site["interval_seconds"]
+
+        # ✅ Validate interval from ONE central list
+        if interval not in ALLOWED_INTERVALS:
+            print(f"⚠️ {name}: interval {interval}s not allowed, skipping")
+            continue
+
+        last_time = last_checked.get(name, 0)
+
+        if current_time - last_time >= interval:
+            print(f"⏱️ {name} eligible for check (interval={interval}s)")
+            sites_to_check.append(site)
+            last_checked[name] = current_time
+
     with ThreadPoolExecutor(max_workers=5) as executor:
-        executor.map(check_website, WEBSITES)
+        executor.map(check_website, sites_to_check)
 
 # =========================
 # FLASK ROUTE
@@ -163,5 +194,7 @@ def home():
 # MAIN
 # =========================
 if __name__ == "__main__":
-    check_websites()
-    app.run(debug=False, use_reloader=False)
+    while True:
+        check_websites()
+        time.sleep(5)
+
