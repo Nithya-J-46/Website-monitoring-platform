@@ -1,3 +1,6 @@
 flask
-mysql-connector-python
+flask-login
+flask-apscheduler
+authlib
 requests
+mysql-connector-python
