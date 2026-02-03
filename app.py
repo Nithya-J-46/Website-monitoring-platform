@@ -3,7 +3,6 @@ import requests
 import mysql.connector
 import smtplib
 from email.message import EmailMessage
-from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, redirect, url_for, session, request, render_template
 from flask_login import (
@@ -41,14 +40,12 @@ class User(UserMixin):
 # FLASK APP SETUP
 # ======================================================
 app = Flask(__name__)
-app.secret_key = "supersecretkey"  # move to env later
+app.secret_key = "supersecretkey"
 
-# Login
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login_google"
 
-# OAuth
 oauth = OAuth(app)
 google = oauth.register(
     name="google",
@@ -58,7 +55,6 @@ google = oauth.register(
     client_kwargs={"scope": "openid email profile"},
 )
 
-# Scheduler
 scheduler = APScheduler()
 scheduler.init_app(app)
 
@@ -70,11 +66,7 @@ scheduler.init_app(app)
 def load_user(user_id):
     user_data = session.get("user")
     if user_data and user_data["id"] == user_id:
-        return User(
-            user_data["id"],
-            user_data["name"],
-            user_data["email"]
-        )
+        return User(user_data["id"], user_data["name"], user_data["email"])
     return None
 
 
@@ -106,6 +98,23 @@ def get_all_monitored_websites():
         SELECT website_name, url, interval_seconds
         FROM monitored_websites
     """)
+    data = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return data
+
+
+# ======================================================
+# ✅ ADDED: FETCH WEBSITES BY INTERVAL (IMPROVEMENT)
+# ======================================================
+def get_websites_by_interval(interval):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT website_name, url, interval_seconds
+        FROM monitored_websites
+        WHERE interval_seconds = %s
+    """, (interval,))
     data = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -173,10 +182,8 @@ def send_email_alert(name):
 
 
 # ======================================================
-# MONITORING LOGIC
+# MONITORING LOGIC (REUSED)
 # ======================================================
-last_checked = {}
-
 def check_website(site):
     name = site["website_name"]
     url = site["url"]
@@ -191,46 +198,45 @@ def check_website(site):
 
     if previous is None:
         log_status_change(name, "UNKNOWN", current)
-        print(f"{name}: Initial status {current}")
         return
 
     if previous != current:
         log_status_change(name, previous, current)
-        print(f"{name}: {previous} → {current}")
         if current == "DOWN":
             send_email_alert(name)
-    else:
-        print(f"{name}: {current} (No change)")
 
 
-def run_background_monitor():
-    websites = get_all_monitored_websites()
-    now = time.time()
-    to_check = []
-
-    for site in websites:
-        name = site["website_name"]
-        interval = site["interval_seconds"]
-
-        if interval not in ALLOWED_INTERVALS:
-            continue
-
-        last = last_checked.get(name, 0)
-        if now - last >= interval:
-            last_checked[name] = now
-            to_check.append(site)
-
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        pool.map(check_website, to_check)
+# ======================================================
+# ✅ ADDED: SEPARATE SCHEDULERS PER INTERVAL
+# ======================================================
+@scheduler.task("interval", id="monitor_30", seconds=30)
+def monitor_30_sec():
+    for site in get_websites_by_interval(30):
+        check_website(site)
 
 
-@scheduler.task("interval", id="monitor", seconds=5)
-def background_monitor():
-    print("🔁 Background monitor tick")
-    try:
-        run_background_monitor()
-    except Exception as e:
-        print("Scheduler error:", e)
+@scheduler.task("interval", id="monitor_60", seconds=60)
+def monitor_60_sec():
+    for site in get_websites_by_interval(60):
+        check_website(site)
+
+
+@scheduler.task("interval", id="monitor_120", seconds=120)
+def monitor_120_sec():
+    for site in get_websites_by_interval(120):
+        check_website(site)
+
+
+# ======================================================
+# ⛔ OLD SCHEDULER (KEPT FOR REFERENCE, NOT DELETED)
+# ======================================================
+# last_checked = {}
+# def run_background_monitor():
+#     ...
+#
+# @scheduler.task("interval", id="monitor", seconds=5)
+# def background_monitor():
+#     run_background_monitor()
 
 
 # ======================================================
@@ -238,9 +244,7 @@ def background_monitor():
 # ======================================================
 @app.route("/login/google")
 def login_google():
-    return google.authorize_redirect(
-        url_for("google_callback", _external=True)
-    )
+    return google.authorize_redirect(url_for("google_callback", _external=True))
 
 
 @app.route("/login/google/callback")
@@ -248,13 +252,9 @@ def google_callback():
     token = google.authorize_access_token()
     user_info = token["userinfo"]
 
-    user = User(
-        user_info["sub"],
-        user_info["name"],
-        user_info["email"]
-    )
-
+    user = User(user_info["sub"], user_info["name"], user_info["email"])
     login_user(user)
+
     session["user"] = {
         "id": user.id,
         "name": user.name,
@@ -283,8 +283,8 @@ def index():
 @login_required
 def dashboard():
     websites = get_monitored_websites_by_user(current_user.id)
-
     enriched = []
+
     for site in websites:
         status = get_latest_status(site["website_name"])
         enriched.append({
@@ -293,16 +293,30 @@ def dashboard():
             "checked_at": status["checked_at"] if status else "-"
         })
 
-    return render_template(
-        "dashboard.html",
-        user=current_user,
-        websites=enriched
-    )
+    return render_template("dashboard.html", user=current_user, websites=enriched)
 
 
-# ======================================================
-# DELETE WEBSITE (NEW FEATURE ✅)
-# ======================================================
+@app.route("/add-website", methods=["POST"])
+@login_required
+def add_website():
+    name = request.form.get("name")
+    url = request.form.get("url")
+    interval = int(request.form.get("interval"))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO monitored_websites
+        (website_name, url, interval_seconds, user_id)
+        VALUES (%s, %s, %s, %s)
+    """, (name, url, interval, current_user.id))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return redirect("/dashboard")
+
+
 @app.route("/delete-website/<name>")
 @login_required
 def delete_website(name):
