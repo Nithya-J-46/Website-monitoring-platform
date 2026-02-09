@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Status Page Configuration</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+        }
+
+        /* ===== HEADER ===== */
+        .header {
+            background-color: #1f2937;
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header h2 {
+            margin: 0;
+            font-weight: 500;
+        }
+
+        /* ===== CONTAINER ===== */
+        .container {
+            max-width: 900px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+        }
+
+        .card h3 {
+            margin-top: 0;
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        /* ===== WEBSITE LIST ===== */
+        .website-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 14px;
+        }
+
+        .website-item {
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .website-item:hover {
+            border-color: #2563eb;
+            background-color: #f8fafc;
+        }
+
+        .website-item input {
+            transform: scale(1.2);
+            cursor: pointer;
+        }
+
+        .website-name {
+            font-size: 15px;
+            font-weight: 500;
+        }
+
+        /* ===== ACTIONS ===== */
+        .actions {
+            margin-top: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #2563eb, #1e40af);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.95;
+        }
+
+        .btn-secondary {
+            background: #f3f4f6;
+            color: #1f2937;
+            border: 1px solid #d1d5db;
+        }
+
+        .btn-secondary:hover {
+            background: #e5e7eb;
+        }
+    </style>
+</head>
+
+<body>
+
+<!-- ===== HEADER ===== -->
+<div class="header">
+    🌐
+    <h2>Status Page Configuration</h2>
+</div>
+
+<!-- ===== CONTENT ===== -->
+<div class="container">
+    <div class="card">
+        <h3>Select websites to display</h3>
+        <p class="subtitle">
+            Choose which monitored websites should appear on your public status page.
+        </p>
+
+        <form method="POST">
+            <div class="website-list">
+                {% for site in websites %}
+                <label class="website-item">
+                    <input
+                        type="checkbox"
+                        name="website_ids"
+                        value="{{ site.id }}"
+                    >
+                    <span class="website-name">{{ site.website_name }}</span>
+                </label>
+                {% endfor %}
+            </div>
+
+            <div class="actions">
+                <a href="/dashboard" class="btn btn-secondary">
+                    ← Back to Dashboard
+                </a>
+
+                <button type="submit" class="btn btn-primary">
+                    Save Configuration
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+</body>
+</html>

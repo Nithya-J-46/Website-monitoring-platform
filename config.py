@@ -8,28 +8,26 @@ DB_CONFIG = {
 SENDER_EMAIL = "nithyasubhashini46@gmail.com"
 APP_PASSWORD = "pwvc szik dtkb tlzg"
 RECEIVER_EMAIL = "nithyasubhashini46@gmail.com"
-# Allowed check intervals (in seconds)
-ALLOWED_INTERVALS = [30, 60, 300, 600]  
+
+# ======================================================
+# ALLOWED CHECK INTERVALS (SINGLE SOURCE OF TRUTH)
+# ======================================================
 # 30s, 1min, 5min, 10min
-GOOGLE_CLIENT_ID = "292901270303-5ha3or178sacla9p5i36819tckm0klqs.apps.googleusercontent.com"
-GOOGLE_CLIENT_SECRET = "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"
+ALLOWED_INTERVALS = [30, 60, 300, 600]
 
+# If you want to add more intervals, add here ONLY
+ALLOWED_INTERVALS.append(900)   # 15 minutes
 
-
-DB_CONFIG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "Mysql@123",
-    "database": "website_monitor"
-}
-
-SENDER_EMAIL = "nithyasubhashini46@gmail.com"
-APP_PASSWORD = "pwvc szik dtkb tlzg"
-RECEIVER_EMAIL = "nithyasubhashini46@gmail.com"
-# Allowed check intervals (in seconds)
-ALLOWED_INTERVALS = [30, 60, 300, 600]  
-# 30s, 1min, 5min, 10min
-GOOGLE_CLIENT_ID = "292901270303-5ha3or178sacla9p5i36819tckm0klqs.apps.googleusercontent.com"
-GOOGLE_CLIENT_SECRET = "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"
+# ======================================================
+# GOOGLE OAUTH
+# ======================================================
+GOOGLE_CLIENT_ID = "292901270303-6f8n511upd27knal4olfhagrpjkd9g5e.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET = "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"
+MONITOR_DURATIONS = [
+    {"label": "30 sec", "seconds": 30},
+    {"label": "1 min", "seconds": 60},
+    {"label": "5 min", "seconds": 300},
+    {"label": "10 min", "seconds": 600}
+]
 
 
