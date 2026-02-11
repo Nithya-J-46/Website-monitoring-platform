@@ -71,6 +71,29 @@
             padding: 0 20px;
         }
 
+        /* ===== GLOBAL STATUS BANNER ===== */
+        .system-banner {
+            margin-bottom: 25px;
+            padding: 20px;
+            border-radius: 14px;
+            font-size: 22px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+        }
+
+        .system-banner.up {
+            background: #ecfdf5;
+            color: #16a34a;
+        }
+
+        .system-banner.down {
+            background: #fef2f2;
+            color: #dc2626;
+        }
+
         /* ===== SUMMARY ===== */
         .summary {
             display: grid;
@@ -213,6 +236,17 @@
 
     {% set up_count = websites | selectattr("status", "equalto", "UP") | list | length %}
     {% set down_count = websites | selectattr("status", "equalto", "DOWN") | list | length %}
+
+    <!-- ===== GLOBAL SYSTEM STATUS ===== -->
+    {% if down_count == 0 %}
+    <div class="system-banner up">
+        🟢 All systems Operational
+    </div>
+    {% else %}
+    <div class="system-banner down">
+        🔴 Some systems are experiencing issues
+    </div>
+    {% endif %}
 
     <!-- ===== SUMMARY ===== -->
     <div class="summary">

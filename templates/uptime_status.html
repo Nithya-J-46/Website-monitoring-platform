@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Uptime Status</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: #f4f6f9;
+        }
+
+        .header {
+            background: #0f172a;
+            color: white;
+            padding: 18px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header a {
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 14px;
+            border-bottom: 1px solid #e5e7eb;
+            text-align: left;
+        }
+
+        .up {
+            color: #16a34a;
+            font-weight: 600;
+        }
+
+        .down {
+            color: #dc2626;
+            font-weight: 600;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="header">
+    <h2>Uptime Status</h2>
+    <a href="/dashboard">← Back to Dashboard</a>
+</div>
+
+<div class="container">
+    <div class="card">
+        <table>
+            <tr>
+                <th>Website</th>
+                <th>URL</th>
+                <th>Status</th>
+                <th>Last Checked</th>
+            </tr>
+
+            {% for site in websites %}
+            <tr>
+                <td>{{ site.website_name }}</td>
+                <td>{{ site.url }}</td>
+                <td>
+                    {% if site.status == "UP" %}
+                        <span class="up">UP</span>
+                    {% else %}
+                        <span class="down">DOWN</span>
+                    {% endif %}
+                </td>
+                <td>{{ site.checked_at }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+</body>
+</html>

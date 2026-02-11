@@ -1,6 +1,19 @@
 import requests
 import mysql.connector
 import smtplib
+import socket
+from urllib.parse import urlparse
+
+def check_website_status(url):
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        port = 443 if parsed.scheme == "https" else 80
+
+        socket.create_connection((host, port), timeout=5)
+        return "UP"
+    except:
+        return "DOWN"
 from email.message import EmailMessage
 from datetime import datetime
 
@@ -175,24 +188,31 @@ def calculate_uptime_percentage(status_list):
 @login_required
 def uptime_history():
     user_id = current_user.id
-
     websites = get_websites_by_user(user_id)
 
+    any_down = False
+
     for site in websites:
+        # Get status history
         statuses = get_status_history(
             site["website_name"],
             user_id
         )
 
+        # Store for template
         site["statuses"] = statuses
         site["uptime_percent"] = calculate_uptime_percentage(statuses)
         site["total_checks"] = len(statuses)
 
+        # Check latest status (IMPORTANT)
+        if statuses and statuses[0] == "DOWN":
+            any_down = True
+
     return render_template(
         "uptime_history.html",
-        websites=websites
+        websites=websites,
+        any_down=any_down
     )
-
 
 def log_status(name, old, new, user_id):
     conn = get_db_connection()
@@ -425,6 +445,25 @@ def delete_website(name):
     conn.close()
 
     return redirect("/dashboard")
+@app.route("/uptime-status")
+def uptime_status():
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+
+    cur.execute("""
+        SELECT website_name, url
+        FROM monitored_websites
+    """)
+    websites = cur.fetchall()
+    for site in websites:
+        site["status"] = check_website_status(site["url"])
+        site["checked_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    cur.close()
+    conn.close()
+
+    return render_template("uptime_status.html", websites=websites)
+
 
 # ======================================================
 # MAIN

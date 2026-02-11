@@ -4,11 +4,12 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def check_website(url):
+import socket
+
+def check_website(host, port=80):
     try:
-        response = requests.get(url, timeout=10, verify=False)
-        if response.status_code == 200:
-            return "UP"
+        socket.create_connection((host, port), timeout=5)
+        return "UP"
+    except:
         return "DOWN"
-    except Exception:
-        return "DOWN"
+
