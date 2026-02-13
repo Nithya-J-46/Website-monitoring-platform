@@ -184,6 +184,9 @@ def calculate_uptime_percentage(status_list):
     up_count = sum(1 for s in status_list if s == "UP")
     return round((up_count / len(status_list)) * 100, 2)
 
+from datetime import datetime
+
+
 @app.route("/uptime-history")
 @login_required
 def uptime_history():
@@ -199,19 +202,23 @@ def uptime_history():
             user_id
         )
 
-        # Store for template
+        # Store for template (existing features preserved)
         site["statuses"] = statuses
         site["uptime_percent"] = calculate_uptime_percentage(statuses)
         site["total_checks"] = len(statuses)
 
-        # Check latest status (IMPORTANT)
+        # Check latest status (IMPORTANT - do not change logic)
         if statuses and statuses[0] == "DOWN":
             any_down = True
+
+    # NEW FEATURE (Safe Improvement)
+    last_updated = datetime.now().strftime("%d %b %Y, %I:%M %p")
 
     return render_template(
         "uptime_history.html",
         websites=websites,
-        any_down=any_down
+        any_down=any_down,
+        last_updated=last_updated   # newly added
     )
 
 def log_status(name, old, new, user_id):

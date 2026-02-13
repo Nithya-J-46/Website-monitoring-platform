@@ -159,11 +159,21 @@
 
 <div class="container">
 
-    <!-- GLOBAL STATUS BASED ON CURRENT STATE -->
-    {% if not any_down %}
-        <div class="system-banner up">🟢 All systems Operational</div>
+    <!-- GLOBAL STATUS -->
+    {% if any_down %}
+    <div class="system-banner down">
+        🔴 Some systems are experiencing issues
+        <div style="font-size:14px; margin-top:8px;">
+            Last updated: {{ last_updated }}
+        </div>
+    </div>
     {% else %}
-        <div class="system-banner down">🔴 Some systems are experiencing issues</div>
+    <div class="system-banner up">
+        🟢 All systems Operational
+        <div style="font-size:14px; margin-top:8px;">
+            Last updated: {{ last_updated }}
+        </div>
+    </div>
     {% endif %}
 
     <!-- SERVICES -->
@@ -173,7 +183,7 @@
         <div class="service-header">
             <div class="site-title">{{ site.website_name }}</div>
 
-            {% if site.statuses and site.statuses[-1] == "UP" %}
+            {% if site.statuses and site.statuses[0] == "UP" %}
                 <div class="status-label up">Operational</div>
             {% else %}
                 <div class="status-label down">Issues Detected</div>
