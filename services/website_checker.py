@@ -1,15 +1,17 @@
 import requests
-from datetime import datetime
-import urllib3
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-import socket
-
-def check_website(host, port=80):
+def check_website(url):
     try:
-        socket.create_connection((host, port), timeout=5)
-        return "UP"
+        response = requests.get(
+            url,
+            timeout=8,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+
+        if 200 <= response.status_code < 400:
+            return "UP"
+        else:
+            return "DOWN"
+
     except:
         return "DOWN"
-

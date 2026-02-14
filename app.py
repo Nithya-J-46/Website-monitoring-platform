@@ -1,21 +1,11 @@
 import requests
 import mysql.connector
 import smtplib
-import socket
-from urllib.parse import urlparse
-
-def check_website_status(url):
-    try:
-        parsed = urlparse(url)
-        host = parsed.hostname
-        port = 443 if parsed.scheme == "https" else 80
-
-        socket.create_connection((host, port), timeout=5)
-        return "UP"
-    except:
-        return "DOWN"
+import os
+import threading
 from email.message import EmailMessage
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, redirect, request, render_template, url_for, session
 from flask_login import (
@@ -24,11 +14,13 @@ from flask_login import (
     login_user,
     logout_user,
     login_required,
-    current_user
+    current_user  
 )
 from authlib.integrations.flask_client import OAuth
 from flask_apscheduler import APScheduler
-from flask_login import login_required, current_user
+
+# ✅ Import service layer (clean architecture)
+from services.website_checker import check_website
 
 from config import (
     DB_CONFIG,
@@ -128,7 +120,6 @@ def logout():
     session.clear()
     return redirect("/login/google")
 
-
 # ======================================================
 # HELPERS
 # ======================================================
@@ -180,58 +171,8 @@ def get_last_status(name, user_id):
 def calculate_uptime_percentage(status_list):
     if not status_list:
         return 0
-
     up_count = sum(1 for s in status_list if s == "UP")
     return round((up_count / len(status_list)) * 100, 2)
-
-from datetime import datetime
-
-
-@app.route("/uptime-history")
-@login_required
-def uptime_history():
-    user_id = current_user.id
-    websites = get_websites_by_user(user_id)
-
-    any_down = False
-
-    for site in websites:
-        # Get status history
-        statuses = get_status_history(
-            site["website_name"],
-            user_id
-        )
-
-        # Store for template (existing features preserved)
-        site["statuses"] = statuses
-        site["uptime_percent"] = calculate_uptime_percentage(statuses)
-        site["total_checks"] = len(statuses)
-
-        # Check latest status (IMPORTANT - do not change logic)
-        if statuses and statuses[0] == "DOWN":
-            any_down = True
-
-    # NEW FEATURE (Safe Improvement)
-    last_updated = datetime.now().strftime("%d %b %Y, %I:%M %p")
-
-    return render_template(
-        "uptime_history.html",
-        websites=websites,
-        any_down=any_down,
-        last_updated=last_updated   # newly added
-    )
-
-def log_status(name, old, new, user_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO website_status_log
-        (website_name, old_status, new_status, checked_at, user_id)
-        VALUES (%s,%s,%s,NOW(),%s)
-    """, (name, old, new, user_id))
-    conn.commit()
-    cur.close()
-    conn.close()
 
 def get_status_history(name, user_id, limit=20):
     conn = get_db_connection()
@@ -247,6 +188,36 @@ def get_status_history(name, user_id, limit=20):
     cur.close()
     conn.close()
     return [r[0] for r in rows]
+
+# ======================================================
+# UPTIME HISTORY
+# ======================================================
+@app.route("/uptime-history")
+@login_required
+def uptime_history():
+    user_id = current_user.id
+    websites = get_websites_by_user(user_id)
+
+    any_down = False
+
+    for site in websites:
+        statuses = get_status_history(site["website_name"], user_id)
+
+        site["statuses"] = statuses
+        site["uptime_percent"] = calculate_uptime_percentage(statuses)
+        site["total_checks"] = len(statuses)
+
+        if statuses and statuses[0] == "DOWN":
+            any_down = True
+
+    last_updated = datetime.now().strftime("%d %b %Y, %I:%M %p")
+
+    return render_template(
+        "uptime_history.html",
+        websites=websites,
+        any_down=any_down,
+        last_updated=last_updated
+    )
 
 # ======================================================
 # EMAIL
@@ -269,7 +240,31 @@ Time    : {datetime.now()}
         smtp.send_message(msg)
 
 # ======================================================
-# MONITORING
+# PARALLEL PROCESSING FUNCTION
+# ======================================================
+def process_single_website(site):
+    print("Checking:", site["website_name"],
+          "Thread:", threading.current_thread().name)
+
+    name = site["website_name"]
+    url = site["url"]
+    user_id = site["user_id"]
+
+    try:
+        r = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        current = "UP" if 200 <= r.status_code < 400 else "DOWN"
+    except:
+        current = "DOWN"
+
+    previous = get_last_status(name, user_id)
+
+    if previous != current:
+        log_status(name, previous or "UNKNOWN", current, user_id)
+        if current == "DOWN":
+            send_down_alert(name, url)
+
+# ======================================================
+# MONITORING (PARALLEL)
 # ======================================================
 def monitor_websites():
     conn = get_db_connection()
@@ -283,25 +278,27 @@ def monitor_websites():
     cur.close()
     conn.close()
 
-    for site in sites:
-        name = site["website_name"]
-        url = site["url"]
-        user_id = site["user_id"]
+    # 🔥 Parallel Execution
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        executor.map(process_single_website, sites)
 
-        try:
-            r = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
-            current = "UP" if 200 <= r.status_code < 400 else "DOWN"
-        except:
-            current = "DOWN"
-
-        previous = get_last_status(name, user_id)
-        if previous != current:
-            log_status(name, previous or "UNKNOWN", current, user_id)
-            if current == "DOWN":
-                send_down_alert(name, url)
+def log_status(name, old, new, user_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO website_status_log
+        (website_name, old_status, new_status, checked_at, user_id)
+        VALUES (%s,%s,%s,NOW(),%s)
+    """, (name, old, new, user_id))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 # ======================================================
-# UI ROUTES
+# DASHBOARD
+# ======================================================
+# ======================================================
+# DASHBOARD
 # ======================================================
 @app.route("/")
 def home():
@@ -324,92 +321,10 @@ def dashboard():
         user=current_user
     )
 
-@app.route("/status-config", methods=["GET", "POST"])
-@login_required
-def status_page_config():
-    """
-    Admin-only page to configure which websites
-    appear on the public status page.
-    """
 
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
-
-    if request.method == "POST":
-        selected_sites = request.form.getlist("website_ids")
-
-        # Clear previous config (GLOBAL)
-        cur.execute("DELETE FROM status_page_config")
-
-        # Insert new selections
-        for site_id in selected_sites:
-            cur.execute(
-                """
-                INSERT INTO status_page_config (website_id)
-                VALUES (%s)
-                """,
-                (site_id,)
-            )
-
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        return redirect("/dashboard")
-
-    # GET request – show all websites
-    cur.execute(
-        "SELECT id, website_name FROM monitored_websites"
-    )
-    websites = cur.fetchall()
-
-    cur.close()
-    conn.close()
-
-    return render_template(
-        "status_config.html",
-        websites=websites
-    )
-
-@app.route("/status")
-def public_status_page():
-    """
-    Public read-only status page.
-    Shows only websites selected in status_page_config.
-    """
-
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
-
-    cur.execute("""
-        SELECT 
-            mw.website_name,
-            mw.url,
-            COALESCE(ws.new_status, 'UNKNOWN') AS status,
-            ws.checked_at
-        FROM status_page_config sp
-        JOIN monitored_websites mw
-            ON sp.website_id = mw.id
-        LEFT JOIN website_status_log ws
-            ON ws.id = (
-                SELECT id
-                FROM website_status_log
-                WHERE website_name = mw.website_name
-                ORDER BY checked_at DESC
-                LIMIT 1
-            )
-    """)
-
-    websites = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    return render_template(
-        "public_status.html",
-        websites=websites
-    )
-
-
+# ======================================================
+# ADD WEBSITE
+# ======================================================
 @app.route("/add-website", methods=["POST"])
 @login_required
 def add_website():
@@ -431,6 +346,10 @@ def add_website():
 
     return redirect("/dashboard")
 
+
+# ======================================================
+# DELETE WEBSITE
+# ======================================================
 @app.route("/delete-website/<name>")
 @login_required
 def delete_website(name):
@@ -452,37 +371,21 @@ def delete_website(name):
     conn.close()
 
     return redirect("/dashboard")
-@app.route("/uptime-status")
-def uptime_status():
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
-
-    cur.execute("""
-        SELECT website_name, url
-        FROM monitored_websites
-    """)
-    websites = cur.fetchall()
-    for site in websites:
-        site["status"] = check_website_status(site["url"])
-        site["checked_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    cur.close()
-    conn.close()
-
-    return render_template("uptime_status.html", websites=websites)
-
 
 # ======================================================
 # MAIN
 # ======================================================
 if __name__ == "__main__":
-    scheduler.add_job(
-        id="monitor_job",
-        func=monitor_websites,
-        trigger="interval",
-        seconds=30
-    )
 
-    scheduler.start()
+    # Prevent duplicate scheduler in debug mode
+    if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        scheduler.add_job(
+            id="monitor_job",
+            func=monitor_websites,
+            trigger="interval",
+            seconds=30,
+            max_instances=1
+        )
+        scheduler.start()
+
     app.run(debug=True)
-
