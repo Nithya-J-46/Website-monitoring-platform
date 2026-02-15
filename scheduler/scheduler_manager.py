@@ -1,11 +1,9 @@
-# scheduler/scheduler_manager.py
-
+from concurrent.futures import ThreadPoolExecutor
 from services.website_checker import check_website
 
+
 def run_checks(websites):
-    """
-    This function is called by the scheduler.
-    It loops through websites and checks their status.
-    """
-    for site in websites:
-        check_website(site)
+
+    # 🔥 Parallel execution
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        executor.map(check_website, websites)
