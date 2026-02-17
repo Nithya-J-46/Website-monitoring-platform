@@ -21,10 +21,7 @@
             align-items: center;
         }
 
-        .header h2 {
-            margin: 0;
-            font-weight: 600;
-        }
+        .header h2 { margin: 0; font-weight: 600; }
 
         .header a {
             color: white;
@@ -52,15 +49,9 @@
             box-shadow: 0 10px 25px rgba(0,0,0,0.08);
         }
 
-        .system-banner.up {
-            background: #ecfdf5;
-            color: #16a34a;
-        }
-
-        .system-banner.down {
-            background: #fef2f2;
-            color: #dc2626;
-        }
+        .system-banner.up { background: #ecfdf5; color: #16a34a; }
+        .system-banner.down { background: #fef2f2; color: #dc2626; }
+        .system-banner.pending { background: #fef9c3; color: #ca8a04; }
 
         .card {
             background: white;
@@ -77,44 +68,19 @@
             margin-bottom: 12px;
         }
 
-        .site-title {
-            font-size: 18px;
-            font-weight: 600;
-        }
+        .site-title { font-size: 18px; font-weight: 600; }
 
-        .status-label {
-            font-size: 14px;
-            font-weight: 600;
-        }
+        .status-label { font-size: 14px; font-weight: 600; }
+        .status-label.up { color: #16a34a; }
+        .status-label.down { color: #dc2626; }
+        .status-label.pending { color: #ca8a04; }
 
-        .status-label.up {
-            color: #16a34a;
-        }
+        .site-url { font-size: 14px; margin-bottom: 10px; }
+        .site-url a { color: #2563eb; text-decoration: none; }
 
-        .status-label.down {
-            color: #dc2626;
-        }
+        .uptime-text { font-size: 14px; margin-bottom: 12px; color: #374151; }
 
-        .site-url {
-            font-size: 14px;
-            margin-bottom: 10px;
-        }
-
-        .site-url a {
-            color: #2563eb;
-            text-decoration: none;
-        }
-
-        .uptime-text {
-            font-size: 14px;
-            margin-bottom: 12px;
-            color: #374151;
-        }
-
-        .bars {
-            display: flex;
-            gap: 4px;
-        }
+        .bars { display: flex; gap: 4px; }
 
         .bar {
             width: 6px;
@@ -123,13 +89,8 @@
             background-color: #e5e7eb;
         }
 
-        .bar.up {
-            background-color: #22c55e;
-        }
-
-        .bar.down {
-            background-color: #ef4444;
-        }
+        .bar.up { background-color: #22c55e; }
+        .bar.down { background-color: #ef4444; }
 
         .legend {
             margin-top: 35px;
@@ -159,21 +120,41 @@
 
 <div class="container">
 
-    <!-- GLOBAL STATUS -->
-    {% if any_down %}
-    <div class="system-banner down">
-        🔴 Some systems are experiencing issues
-        <div style="font-size:14px; margin-top:8px;">
-            Last updated: {{ last_updated }}
+    <!-- GLOBAL STATUS FIXED -->
+    {% set total_sites = websites|length %}
+    {% set no_data = websites|selectattr("total_checks", "equalto", 0)|list|length %}
+
+    {% if total_sites == 0 %}
+        <div class="system-banner pending">
+            🟡 No Websites Added Yet
+            <div style="font-size:14px; margin-top:8px;">
+                Last updated: {{ last_updated }}
+            </div>
         </div>
-    </div>
+
+    {% elif no_data == total_sites %}
+        <div class="system-banner pending">
+            🟡 Monitoring Not Started Yet
+            <div style="font-size:14px; margin-top:8px;">
+                Last updated: {{ last_updated }}
+            </div>
+        </div>
+
+    {% elif any_down %}
+        <div class="system-banner down">
+            🔴 Some systems are experiencing issues
+            <div style="font-size:14px; margin-top:8px;">
+                Last updated: {{ last_updated }}
+            </div>
+        </div>
+
     {% else %}
-    <div class="system-banner up">
-        🟢 All systems Operational
-        <div style="font-size:14px; margin-top:8px;">
-            Last updated: {{ last_updated }}
+        <div class="system-banner up">
+            🟢 All systems Operational
+            <div style="font-size:14px; margin-top:8px;">
+                Last updated: {{ last_updated }}
+            </div>
         </div>
-    </div>
     {% endif %}
 
     <!-- SERVICES -->
@@ -183,8 +164,12 @@
         <div class="service-header">
             <div class="site-title">{{ site.website_name }}</div>
 
-            {% if site.statuses and site.statuses[0] == "UP" %}
+            {% if site.total_checks == 0 %}
+                <div class="status-label pending">No Data Yet</div>
+
+            {% elif site.statuses[0] == "UP" %}
                 <div class="status-label up">Operational</div>
+
             {% else %}
                 <div class="status-label down">Issues Detected</div>
             {% endif %}

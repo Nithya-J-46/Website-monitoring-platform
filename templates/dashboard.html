@@ -262,10 +262,14 @@
                 <td>{{ site.checked_at }}</td>
                 <td>
                     <a href="/delete-website/{{ site.website_name }}"
-                       class="delete-btn"
-                       onclick="return confirm('Delete this website?')">
-                        Delete
+                     class="delete-btn"
+                     onclick="return confirm('Delete this website?')">
+                     Delete
                     </a>
+                </td>
+
+                </a>
+
                 </td>
             </tr>
             {% endfor %}
