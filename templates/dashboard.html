@@ -1,288 +1,284 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Website Monitoring Dashboard</title>
+<meta charset="UTF-8">
+<title>Website Monitoring Dashboard</title>
 
-    <style>
-        body {
-            margin: 0;
-            font-family: "Segoe UI", Arial, sans-serif;
-            background-color: #f4f6f9;
-            color: #1f2937;
-        }
+<style>
+body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    background-color: #f4f6f9;
+    color: #1f2937;
+}
 
-        /* ===== HEADER ===== */
-        .header {
-            background: linear-gradient(135deg, #0f172a, #1f2937);
-            color: white;
-            padding: 18px 26px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+/* ===== HEADER ===== */
+.header {
+    background: linear-gradient(135deg, #0f172a, #1f2937);
+    color: white;
+    padding: 18px 26px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
 
-        .header h2 {
-            margin: 0;
-            font-size: 20px;
-            font-weight: 600;
-        }
+.header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+}
 
-        .header-actions {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-        }
+.header-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
 
-        .btn {
-            text-decoration: none;
-            padding: 9px 16px;
-            font-size: 13px;
-            font-weight: 600;
-            border-radius: 8px;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            transition: 0.2s ease;
-        }
+.btn-danger {
+    background: #ef4444;
+    color: white;
+    padding: 9px 16px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+}
 
-        .btn-primary {
-            background: #6366f1;
-            color: white;
-        }
+.btn-danger:hover {
+    background: #dc2626;
+}
 
-        .btn-primary:hover {
-            background: #4f46e5;
-        }
+/* ===== CONTAINER ===== */
+.container {
+    max-width: 1100px;
+    margin: 30px auto;
+    padding: 0 20px;
+}
 
-        .btn-danger {
-            background: #ef4444;
-            color: white;
-        }
+.card {
+    background: white;
+    border-radius: 14px;
+    padding: 22px;
+    margin-bottom: 25px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
 
-        .btn-danger:hover {
-            background: #dc2626;
-        }
+/* ===== FORM ===== */
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr auto;
+    gap: 12px;
+}
 
-        /* ===== CONTAINER ===== */
-        .container {
-            max-width: 1100px;
-            margin: 30px auto;
-            padding: 0 20px;
-        }
+input, select {
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #d1d5db;
+    font-size: 14px;
+}
 
-        .card {
-            background: white;
-            border-radius: 14px;
-            padding: 22px;
-            margin-bottom: 25px;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-        }
+button {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+}
 
-        /* ===== FORM ===== */
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 2fr 1fr auto;
-            gap: 12px;
-        }
+/* ===== TABLE ===== */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
 
-        input, select {
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid #d1d5db;
-            font-size: 14px;
-        }
+th {
+    text-align: left;
+    font-size: 13px;
+    color: #6b7280;
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 10px;
+}
 
-        button {
-            background: #2563eb;
-            color: white;
-            border: none;
-            padding: 10px 18px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: 0.2s ease;
-        }
+td {
+    padding: 14px 0;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 14px;
+}
 
-        button:hover {
-            background: #1d4ed8;
-        }
+/* ===== STATUS STYLING (FIXED + GLOW ADDED) ===== */
+.status {
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-block;
+    color: white;
+}
 
-        /* ===== TABLE ===== */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
+/* GREEN GLOW */
+.status.up {
+    background-color: #22c55e;
+    box-shadow: 0 0 12px #22c55e, 0 0 25px #22c55e;
+}
 
-        th {
-            text-align: left;
-            font-size: 13px;
-            color: #6b7280;
-            border-bottom: 2px solid #e5e7eb;
-            padding-bottom: 10px;
-        }
+/* RED BLINK */
+.status.down {
+    background-color: #ef4444;
+    animation: blink 1s infinite;
+}
 
-        td {
-            padding: 14px 0;
-            border-bottom: 1px solid #e5e7eb;
-            font-size: 14px;
-        }
+@keyframes blink {
+    0% { opacity: 1; }
+    50% { opacity: 0.4; }
+    100% { opacity: 1; }
+}
 
-        tr:hover {
-            background-color: #f9fafb;
-        }
+/* DARK MODE */
+body.dark {
+    background-color: #1e1e2f;
+    color: white;
+}
 
-        .status {
-            padding: 6px 14px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 600;
-            display: inline-block;
-        }
+body.dark .card {
+    background: #2c2c3c;
+}
 
-        .status.up {
-            background: #dcfce7;
-            color: #166534;
-        }
+body.dark input,
+body.dark select {
+    background: #333;
+    color: white;
+    border: 1px solid #555;
+}
 
-        .status.down {
-            background: #fee2e2;
-            color: #991b1b;
-        }
+#darkToggle {
+    background: transparent;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+}
+.delete-btn {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: white;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.25s ease;
+}
 
-        .delete-btn {
-            background: #ef4444;
-            color: white;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            text-decoration: none;
-            transition: 0.2s ease;
-        }
-
-        .delete-btn:hover {
-            background: #dc2626;
-        }
-
-        .link-btn {
-            display: inline-block;
-            margin-top: 14px;
-            text-decoration: none;
-            color: #2563eb;
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        .link-btn:hover {
-            text-decoration: underline;
-        }
-
-        .url-link {
-            color: #2563eb;
-            text-decoration: none;
-        }
-
-        .url-link:hover {
-            text-decoration: underline;
-        }
-    </style>
+.delete-btn:hover {
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(220,38,38,0.4);
+}
+</style>
 </head>
 
 <body>
 
-<!-- ===== HEADER ===== -->
 <div class="header">
     <h2>Website Monitoring System</h2>
-
     <div class="header-actions">
-        <a href="/logout" class="btn btn-danger">Logout</a>
+        <button id="darkToggle">🌙</button>
+        <a href="/logout" class="btn-danger">Logout</a>
     </div>
 </div>
 
-<!-- ===== CONTENT ===== -->
 <div class="container">
 
-    <!-- WELCOME -->
-    <div class="card">
-        <h3>Welcome, {{ user.name }}</h3>
-        <p>Monitor your websites and view uptime history.</p>
-    </div>
+<div class="card">
+    <h3>Welcome, {{ user.name }}</h3>
+    <p>Monitor your websites and view uptime history.</p>
+</div>
 
-    <!-- ADD WEBSITE -->
-    <div class="card">
-        <h3>Add Website</h3>
+<div class="card">
+    <h3>Add Website</h3>
+    <form method="POST" action="/add-website">
+        <div class="form-row">
+            <input type="text" name="name" placeholder="Website Name" required>
+            <input type="url" name="url" placeholder="https://example.com" required>
+            <select name="interval" required>
+                <option value="30">30 sec</option>
+                <option value="60">1 min</option>
+                <option value="300">5 min</option>
+                <option value="600">10 min</option>
+            </select>
+            <button type="submit">Add</button>
+        </div>
+    </form>
+</div>
 
-        <form method="POST" action="/add-website">
-            <div class="form-row">
-                <input type="text" name="name" placeholder="Website Name" required>
-                <input type="url" name="url" placeholder="https://example.com" required>
+<div class="card">
+<h3>Your Websites</h3>
 
-                <select name="interval" required>
-                    <option value="30">30 sec</option>
-                    <option value="60">1 min</option>
-                    <option value="300">5 min</option>
-                    <option value="600">10 min</option>
-                </select>
+{% if websites %}
+<table>
+<tr>
+<th>Name</th>
+<th>URL</th>
+<th>Status</th>
+<th>Last Checked</th>
+<th>Action</th>
+</tr>
 
-                <button type="submit">Add</button>
-            </div>
-        </form>
-    </div>
+{% for site in websites %}
+<tr>
+<td>{{ site.website_name }}</td>
+<td>
+<a href="{{ site.url }}" target="_blank">
+{{ site.url }}
+</a>
+</td>
 
-    <!-- WEBSITE LIST -->
-    <div class="card">
-        <h3>Your Websites</h3>
+<td>
+{% if site.status == "UP" %}
+<span class="status up">UP</span>
+{% else %}
+<span class="status down">DOWN</span>
+{% endif %}
+</td>
 
-        {% if websites %}
-        <table>
-            <tr>
-                <th>Name</th>
-                <th>URL</th>
-                <th>Status</th>
-                <th>Last Checked</th>
-                <th>Action</th>
-            </tr>
+<td>{{ site.checked_at }}</td>
 
-            {% for site in websites %}
-            <tr>
-                <td>{{ site.website_name }}</td>
-                <td>
-                    <a href="{{ site.url }}" target="_blank" class="url-link">
-                        {{ site.url }}
-                    </a>
-                </td>
-                <td>
-                    {% if site.status == "UP" %}
-                        <span class="status up">UP</span>
-                    {% else %}
-                        <span class="status down">DOWN</span>
-                    {% endif %}
-                </td>
-                <td>{{ site.checked_at }}</td>
-                <td>
-                    <a href="/delete-website/{{ site.website_name }}"
-                     class="delete-btn"
-                     onclick="return confirm('Delete this website?')">
-                     Delete
-                    </a>
-                </td>
+<td>
+<a href="/delete-website/{{ site.website_name }}"
+   class="delete-btn"
+   onclick="return confirm('Delete this website?')">
+   🗑 Delete
+</a>
+</td>
+</tr>
+{% endfor %}
+</table>
 
-                </a>
+<a href="/uptime-history">View Uptime History →</a>
 
-                </td>
-            </tr>
-            {% endfor %}
-        </table>
-
-        <a href="/uptime-history" class="link-btn">View Uptime History →</a>
-
-        {% else %}
-            <p>No websites added yet.</p>
-        {% endif %}
-    </div>
+{% else %}
+<p>No websites added yet.</p>
+{% endif %}
+</div>
 
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const toggleBtn = document.getElementById("darkToggle");
+
+    toggleBtn.addEventListener("click", function() {
+        document.body.classList.toggle("dark");
+    });
+});
+
+/* Auto refresh */
+setInterval(function(){
+    window.location.reload();
+}, 30000);
+</script>
 
 </body>
 </html>

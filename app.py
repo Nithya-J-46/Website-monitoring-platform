@@ -6,7 +6,8 @@ from email.message import EmailMessage
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Flask, redirect, request, render_template, url_for, session
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask import Flask, redirect, request, render_template, url_for, session, flash
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -55,7 +56,7 @@ scheduler = BackgroundScheduler()
 
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = "login_google"
+login_manager.login_view = "home"
 
 oauth = OAuth(app)
 
@@ -72,13 +73,22 @@ google = oauth.register(
 # ======================================================
 @login_manager.user_loader
 def load_user(user_id):
-    user_data = session.get("user")
-    if user_data and str(user_data["id"]) == str(user_id):
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
+
+    cur.execute("SELECT * FROM users WHERE id=%s", (user_id,))
+    user = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if user:
         return User(
-            user_data["id"],
-            user_data["name"],
-            user_data["email"]
+            user["id"],
+            user.get("username") or user.get("name"),
+            user["email"]
         )
+
     return None
 
 # ======================================================
@@ -89,34 +99,113 @@ def login_google():
     return google.authorize_redirect(
         url_for("google_callback", _external=True)
     )
+# ======================================================
+# NORMAL LOGIN
+# ======================================================
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+
+        cur.execute("SELECT * FROM users WHERE username=%s", (username,))
+        user = cur.fetchone()
+
+        cur.close()
+        conn.close()
+
+        if user and check_password_hash(user["password_hash"], password):
+            user_obj = User(user["id"], user["username"], user["email"])
+            login_user(user_obj)
+            return redirect("/dashboard")
+        else:
+            flash("Invalid username or password", "danger")
+            return redirect("/login")
+    return render_template("login.html")
+        
 
 @app.route("/login/google/callback")
 def google_callback():
     token = google.authorize_access_token()
     user_info = token["userinfo"]
 
-    user = User(
-        user_info["sub"],
-        user_info["name"],
-        user_info["email"]
-    )
+    conn = get_db_connection()
+    cur = conn.cursor(dictionary=True)
 
-    login_user(user)
+    cur.execute("SELECT * FROM users WHERE email=%s", (user_info["email"],))
+    user = cur.fetchone()
+
+    if not user:
+        cur.execute("""
+            INSERT INTO users (google_id, name, email)
+            VALUES (%s, %s, %s)
+        """, (user_info["sub"], user_info["name"], user_info["email"]))
+
+        conn.commit()
+
+        cur.execute("SELECT * FROM users WHERE email=%s", (user_info["email"],))
+        user = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    login_user(User(user["id"], user["name"], user["email"]))
 
     session["user"] = {
-        "id": user.id,
-        "name": user.name,
-        "email": user.email
+        "id": user["id"],
+        "name": user["name"],
+        "email": user["email"]
     }
 
     return redirect("/dashboard")
+
 
 @app.route("/logout")
 @login_required
 def logout():
     logout_user()
     session.clear()
-    return redirect("/login/google")
+    return redirect("/login")
+# ======================================================
+# REGISTER
+# ======================================================
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form["username"]
+        email = request.form["email"]
+        password = request.form["password"]
+
+        hashed_password = generate_password_hash(password)
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        try:
+            cur.execute("""
+                INSERT INTO users (username, email, password_hash)
+                VALUES (%s, %s, %s)
+            """, (username, email, hashed_password))
+
+            conn.commit()
+
+            flash("Account created successfully! Please login.", "success")
+            return redirect("/login")   # ✅ VERY IMPORTANT
+
+        except mysql.connector.IntegrityError:
+            flash("Username or Email already exists", "danger")
+            return redirect("/register")
+
+        finally:
+            cur.close()
+            conn.close()
+
+    return render_template("register.html")
 
 # ======================================================
 # HELPERS
@@ -269,7 +358,7 @@ def run_interval_job(interval):
 # ======================================================
 @app.route("/")
 def home():
-    return redirect("/dashboard")
+    return render_template("login.html")
 
 @app.route("/dashboard")
 @login_required
