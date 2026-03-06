@@ -11,8 +11,8 @@ from flask import Flask, redirect, request, render_template, url_for, session, f
 from flask_login import (
     LoginManager,
     UserMixin,
-    login_user,
-    logout_user,
+    login_user, 
+    logout_user,30
     login_required,
     current_user
 )
@@ -26,7 +26,8 @@ from config import (
     APP_PASSWORD,
     RECEIVER_EMAIL,
     GOOGLE_CLIENT_ID,
-    GOOGLE_CLIENT_SECRET
+    GOOGLE_CLIENT_SECRET,
+    ALLOWED_INTERVALS
 )
 
 # ======================================================
@@ -76,7 +77,7 @@ def load_user(user_id):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
 
-    cur.execute("SELECT * FROM users WHERE id=%s", (user_id,))
+    cur.execute("SELECT id, username, email FROM users WHERE id=%s", (user_id,))
     user = cur.fetchone()
 
     cur.close()
@@ -113,7 +114,7 @@ def login():
         conn = get_db_connection()
         cur = conn.cursor(dictionary=True)
 
-        cur.execute("SELECT * FROM users WHERE username=%s", (username,))
+        cur.execute("SELECT id, username, email, password_hash FROM users WHERE username=%s", (username,))
         user = cur.fetchone()
 
         cur.close()
@@ -137,7 +138,7 @@ def google_callback():
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
 
-    cur.execute("SELECT * FROM users WHERE email=%s", (user_info["email"],))
+    cur.execute("SELECT id, name, email FROM users WHERE email=%s", (user_info["email"],))
     user = cur.fetchone()
 
     if not user:
@@ -148,7 +149,7 @@ def google_callback():
 
         conn.commit()
 
-        cur.execute("SELECT * FROM users WHERE email=%s", (user_info["email"],))
+        cur.execute("SELECT id, name, email FROM users WHERE email=%s", (user_info["email"],))
         user = cur.fetchone()
 
     cur.close()
@@ -219,11 +220,12 @@ def get_websites_by_user(user_id):
                ws.new_status AS status, ws.checked_at
         FROM monitored_websites mw
         LEFT JOIN (
-            SELECT w1.*
+            SELECT w1.website_name, w1.user_id, w1.new_status, w1.checked_at
             FROM website_status_log w1
             INNER JOIN (
                 SELECT website_name, user_id, MAX(id) as max_id
                 FROM website_status_log
+                WHERE user_id = %s
                 GROUP BY website_name, user_id
             ) w2
             ON w1.id = w2.max_id
@@ -232,7 +234,7 @@ def get_websites_by_user(user_id):
         AND mw.user_id = ws.user_id
         WHERE mw.user_id = %s
         ORDER BY mw.id DESC
-    """, (user_id,))
+    """, (user_id, user_id))
 
     data = cur.fetchall()
 
@@ -417,6 +419,23 @@ def add_website():
     interval = int(request.form["interval"])
     search_text = request.form.get("search_text", "")
 
+    # Server-side Validation
+    if not name or not url:
+        flash("Name and URL are required", "danger")
+        return redirect("/dashboard")
+
+    if len(name) > 100 or len(url) > 255:
+        flash("Input too long", "danger")
+        return redirect("/dashboard")
+
+    if interval not in ALLOWED_INTERVALS:
+        flash("Invalid monitoring interval", "danger")
+        return redirect("/dashboard")
+
+    if not url.startswith(("http://", "https://")):
+        flash("Invalid URL format. Use http:// or https://", "danger")
+        return redirect("/dashboard")
+
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -442,9 +461,13 @@ def add_website():
 @app.route("/delete-website/<name>")
 @login_required
 def delete_website(name):
+    if not name:
+        return redirect("/dashboard")
+
     conn = get_db_connection()
     cur = conn.cursor()
 
+    # User-ownership is enforced by user_id check in WHERE clause
     cur.execute("""
         DELETE FROM website_status_log
         WHERE website_name=%s AND user_id=%s
