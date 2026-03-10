@@ -3,6 +3,7 @@ import os
 from email.message import EmailMessage
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import quote_plus
 
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, redirect, request, render_template, url_for, session, flash
@@ -16,10 +17,9 @@ from flask_login import (
 )
 from authlib.integrations.flask_client import OAuth
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy import func
 
-# SQLAlchemy imports
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, text
+from models.website_model import db, UserModel, MonitoredWebsite, WebsiteStatusLog
 
 from services.website_checker import check_website
 from config import (
@@ -38,11 +38,7 @@ from config import (
 app = Flask(__name__)
 app.secret_key = "supersecretkey"
 
-# Build SQLAlchemy connection string from existing DB_CONFIG dict
-f"@{DB_CONFIG['host']}/{DB_CONFIG['database']}"
-from urllib.parse import quote_plus
-
-password = quote_plus(DB_CONFIG['password'])  # safely encodes the @ symbol
+password = quote_plus(DB_CONFIG['password'])
 
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+mysqlconnector://{DB_CONFIG['user']}:{password}"
@@ -50,7 +46,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-db = SQLAlchemy(app)
+db.init_app(app)
 
 scheduler = BackgroundScheduler()
 
@@ -67,44 +63,6 @@ google = oauth.register(
     server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
     client_kwargs={"scope": "openid email profile"},
 )
-
-# ======================================================
-# SQLALCHEMY MODELS
-# ======================================================
-class UserModel(db.Model):
-    __tablename__ = "users"
-
-    id            = db.Column(db.Integer, primary_key=True)
-    username      = db.Column(db.String(150), unique=True, nullable=True)
-    name          = db.Column(db.String(150), nullable=True)
-    email         = db.Column(db.String(255), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=True)
-    google_id     = db.Column(db.String(255), nullable=True)
-
-    websites = db.relationship("MonitoredWebsite", backref="owner", lazy=True)
-    logs     = db.relationship("WebsiteStatusLog", backref="owner", lazy=True)
-
-
-class MonitoredWebsite(db.Model):
-    __tablename__ = "monitored_websites"
-
-    id               = db.Column(db.Integer, primary_key=True)
-    website_name     = db.Column(db.String(100), nullable=False)
-    url              = db.Column(db.String(255), nullable=False)
-    interval_seconds = db.Column(db.Integer, nullable=False)
-    search_text      = db.Column(db.String(255), nullable=True)
-    user_id          = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-
-
-class WebsiteStatusLog(db.Model):
-    __tablename__ = "website_status_log"
-
-    id           = db.Column(db.Integer, primary_key=True)
-    website_name = db.Column(db.String(100), nullable=False)
-    old_status   = db.Column(db.String(20), nullable=True)
-    new_status   = db.Column(db.String(20), nullable=False)
-    checked_at   = db.Column(db.DateTime, default=datetime.utcnow)
-    user_id      = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
 
 
 # ======================================================
@@ -239,7 +197,6 @@ def get_websites_by_user(user_id):
     Returns each monitored website with its latest status from the log table.
     Mirrors the original LEFT JOIN + subquery logic.
     """
-    # Subquery: latest log id per (website_name, user_id)
     latest_log_subq = (
         db.session.query(
             WebsiteStatusLog.website_name,
@@ -251,7 +208,6 @@ def get_websites_by_user(user_id):
         .subquery()
     )
 
-    # Join to get the actual new_status and checked_at for those max rows
     latest_log = (
         db.session.query(
             WebsiteStatusLog.website_name,
@@ -449,7 +405,6 @@ def add_website():
     interval    = int(request.form["interval"])
     search_text = request.form.get("search_text", "")
 
-    # Server-side Validation
     if not name or not url:
         flash("Name and URL are required", "danger")
         return redirect("/dashboard")
@@ -481,7 +436,7 @@ def add_website():
         db.session.rollback()
         print("Duplicate website ignored")
 
-    setup_scheduler()  # refresh intervals
+    setup_scheduler()
 
     return redirect("/dashboard")
 
@@ -492,7 +447,6 @@ def delete_website(name):
     if not name:
         return redirect("/dashboard")
 
-    # User-ownership enforced via user_id filter
     WebsiteStatusLog.query.filter_by(
         website_name=name, user_id=current_user.id
     ).delete()
@@ -524,7 +478,7 @@ def send_down_alert(site_name, url):
 
 
 # ======================================================
-# SCHEDULER SETUP  (defined BEFORE first use above)
+# SCHEDULER SETUP
 # ======================================================
 def setup_scheduler():
     """Remove old jobs and re-add one job per unique interval in the DB."""
