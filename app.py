@@ -1,5 +1,3 @@
-import requests
-import mysql.connector
 import smtplib
 import os
 from email.message import EmailMessage
@@ -11,13 +9,17 @@ from flask import Flask, redirect, request, render_template, url_for, session, f
 from flask_login import (
     LoginManager,
     UserMixin,
-    login_user, 
-    logout_user,30
+    login_user,
+    logout_user,
     login_required,
     current_user
 )
 from authlib.integrations.flask_client import OAuth
 from apscheduler.schedulers.background import BackgroundScheduler
+
+# SQLAlchemy imports
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import func, text
 
 from services.website_checker import check_website
 from config import (
@@ -31,27 +33,24 @@ from config import (
 )
 
 # ======================================================
-# DATABASE
-# ======================================================
-def get_db_connection():
-    conn = mysql.connector.connect(**DB_CONFIG)
-    conn.autocommit = True
-    return conn
-
-# ======================================================
-# USER MODEL
-# ======================================================
-class User(UserMixin):
-    def __init__(self, id_, name, email):
-        self.id = id_
-        self.name = name
-        self.email = email
-
-# ======================================================
 # APP SETUP
 # ======================================================
 app = Flask(__name__)
 app.secret_key = "supersecretkey"
+
+# Build SQLAlchemy connection string from existing DB_CONFIG dict
+f"@{DB_CONFIG['host']}/{DB_CONFIG['database']}"
+from urllib.parse import quote_plus
+
+password = quote_plus(DB_CONFIG['password'])  # safely encodes the @ symbol
+
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    f"mysql+mysqlconnector://{DB_CONFIG['user']}:{password}"
+    f"@{DB_CONFIG['host']}/{DB_CONFIG['database']}"
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db = SQLAlchemy(app)
 
 scheduler = BackgroundScheduler()
 
@@ -70,27 +69,68 @@ google = oauth.register(
 )
 
 # ======================================================
+# SQLALCHEMY MODELS
+# ======================================================
+class UserModel(db.Model):
+    __tablename__ = "users"
+
+    id            = db.Column(db.Integer, primary_key=True)
+    username      = db.Column(db.String(150), unique=True, nullable=True)
+    name          = db.Column(db.String(150), nullable=True)
+    email         = db.Column(db.String(255), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=True)
+    google_id     = db.Column(db.String(255), nullable=True)
+
+    websites = db.relationship("MonitoredWebsite", backref="owner", lazy=True)
+    logs     = db.relationship("WebsiteStatusLog", backref="owner", lazy=True)
+
+
+class MonitoredWebsite(db.Model):
+    __tablename__ = "monitored_websites"
+
+    id               = db.Column(db.Integer, primary_key=True)
+    website_name     = db.Column(db.String(100), nullable=False)
+    url              = db.Column(db.String(255), nullable=False)
+    interval_seconds = db.Column(db.Integer, nullable=False)
+    search_text      = db.Column(db.String(255), nullable=True)
+    user_id          = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+
+
+class WebsiteStatusLog(db.Model):
+    __tablename__ = "website_status_log"
+
+    id           = db.Column(db.Integer, primary_key=True)
+    website_name = db.Column(db.String(100), nullable=False)
+    old_status   = db.Column(db.String(20), nullable=True)
+    new_status   = db.Column(db.String(20), nullable=False)
+    checked_at   = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id      = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+
+
+# ======================================================
+# USER MODEL  (Flask-Login)
+# ======================================================
+class User(UserMixin):
+    def __init__(self, id_, name, email):
+        self.id   = id_
+        self.name = name
+        self.email = email
+
+
+# ======================================================
 # LOGIN MANAGER
 # ======================================================
 @login_manager.user_loader
 def load_user(user_id):
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
-
-    cur.execute("SELECT id, username, email FROM users WHERE id=%s", (user_id,))
-    user = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
+    user = db.session.get(UserModel, int(user_id))
     if user:
         return User(
-            user["id"],
-            user.get("username") or user.get("name"),
-            user["email"]
+            user.id,
+            user.username or user.name,
+            user.email
         )
-
     return None
+
 
 # ======================================================
 # GOOGLE AUTH
@@ -100,67 +140,52 @@ def login_google():
     return google.authorize_redirect(
         url_for("google_callback", _external=True)
     )
+
+
 # ======================================================
 # NORMAL LOGIN
 # ======================================================
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
-
     if request.method == "POST":
         username = request.form["username"]
         password = request.form["password"]
 
-        conn = get_db_connection()
-        cur = conn.cursor(dictionary=True)
+        user = UserModel.query.filter_by(username=username).first()
 
-        cur.execute("SELECT id, username, email, password_hash FROM users WHERE username=%s", (username,))
-        user = cur.fetchone()
-
-        cur.close()
-        conn.close()
-
-        if user and check_password_hash(user["password_hash"], password):
-            user_obj = User(user["id"], user["username"], user["email"])
+        if user and check_password_hash(user.password_hash, password):
+            user_obj = User(user.id, user.username, user.email)
             login_user(user_obj)
             return redirect("/dashboard")
         else:
             flash("Invalid username or password", "danger")
             return redirect("/login")
+
     return render_template("login.html")
-        
+
 
 @app.route("/login/google/callback")
 def google_callback():
-    token = google.authorize_access_token()
-    user_info = token["userinfo"]
+    token      = google.authorize_access_token()
+    user_info  = token["userinfo"]
 
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
-
-    cur.execute("SELECT id, name, email FROM users WHERE email=%s", (user_info["email"],))
-    user = cur.fetchone()
+    user = UserModel.query.filter_by(email=user_info["email"]).first()
 
     if not user:
-        cur.execute("""
-            INSERT INTO users (google_id, name, email)
-            VALUES (%s, %s, %s)
-        """, (user_info["sub"], user_info["name"], user_info["email"]))
+        user = UserModel(
+            google_id = user_info["sub"],
+            name      = user_info["name"],
+            email     = user_info["email"]
+        )
+        db.session.add(user)
+        db.session.commit()
 
-        conn.commit()
-
-        cur.execute("SELECT id, name, email FROM users WHERE email=%s", (user_info["email"],))
-        user = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
-    login_user(User(user["id"], user["name"], user["email"]))
+    login_user(User(user.id, user.name, user.email))
 
     session["user"] = {
-        "id": user["id"],
-        "name": user["name"],
-        "email": user["email"]
+        "id":    user.id,
+        "name":  user.name,
+        "email": user.email
     }
 
     return redirect("/dashboard")
@@ -172,6 +197,8 @@ def logout():
     logout_user()
     session.clear()
     return redirect("/login")
+
+
 # ======================================================
 # REGISTER
 # ======================================================
@@ -179,89 +206,109 @@ def logout():
 def register():
     if request.method == "POST":
         username = request.form["username"]
-        email = request.form["email"]
+        email    = request.form["email"]
         password = request.form["password"]
 
         hashed_password = generate_password_hash(password)
 
-        conn = get_db_connection()
-        cur = conn.cursor()
-
         try:
-            cur.execute("""
-                INSERT INTO users (username, email, password_hash)
-                VALUES (%s, %s, %s)
-            """, (username, email, hashed_password))
-
-            conn.commit()
+            new_user = UserModel(
+                username      = username,
+                email         = email,
+                password_hash = hashed_password
+            )
+            db.session.add(new_user)
+            db.session.commit()
 
             flash("Account created successfully! Please login.", "success")
-            return redirect("/login")   # ✅ VERY IMPORTANT
+            return redirect("/login")
 
-        except mysql.connector.IntegrityError:
+        except Exception:
+            db.session.rollback()
             flash("Username or Email already exists", "danger")
             return redirect("/register")
 
-        finally:
-            cur.close()
-            conn.close()
-
     return render_template("register.html")
+
 
 # ======================================================
 # HELPERS
 # ======================================================
 def get_websites_by_user(user_id):
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
+    """
+    Returns each monitored website with its latest status from the log table.
+    Mirrors the original LEFT JOIN + subquery logic.
+    """
+    # Subquery: latest log id per (website_name, user_id)
+    latest_log_subq = (
+        db.session.query(
+            WebsiteStatusLog.website_name,
+            WebsiteStatusLog.user_id,
+            func.max(WebsiteStatusLog.id).label("max_id")
+        )
+        .filter(WebsiteStatusLog.user_id == user_id)
+        .group_by(WebsiteStatusLog.website_name, WebsiteStatusLog.user_id)
+        .subquery()
+    )
 
-    cur.execute("""
-        SELECT mw.id, mw.website_name, mw.url, mw.interval_seconds,
-               ws.new_status AS status, ws.checked_at
-        FROM monitored_websites mw
-        LEFT JOIN (
-            SELECT w1.website_name, w1.user_id, w1.new_status, w1.checked_at
-            FROM website_status_log w1
-            INNER JOIN (
-                SELECT website_name, user_id, MAX(id) as max_id
-                FROM website_status_log
-                WHERE user_id = %s
-                GROUP BY website_name, user_id
-            ) w2
-            ON w1.id = w2.max_id
-        ) ws
-        ON mw.website_name = ws.website_name
-        AND mw.user_id = ws.user_id
-        WHERE mw.user_id = %s
-        ORDER BY mw.id DESC
-    """, (user_id, user_id))
+    # Join to get the actual new_status and checked_at for those max rows
+    latest_log = (
+        db.session.query(
+            WebsiteStatusLog.website_name,
+            WebsiteStatusLog.user_id,
+            WebsiteStatusLog.new_status,
+            WebsiteStatusLog.checked_at
+        )
+        .join(
+            latest_log_subq,
+            WebsiteStatusLog.id == latest_log_subq.c.max_id
+        )
+        .subquery()
+    )
 
-    data = cur.fetchall()
+    rows = (
+        db.session.query(
+            MonitoredWebsite.id,
+            MonitoredWebsite.website_name,
+            MonitoredWebsite.url,
+            MonitoredWebsite.interval_seconds,
+            latest_log.c.new_status.label("status"),
+            latest_log.c.checked_at
+        )
+        .outerjoin(
+            latest_log,
+            (MonitoredWebsite.website_name == latest_log.c.website_name) &
+            (MonitoredWebsite.user_id      == latest_log.c.user_id)
+        )
+        .filter(MonitoredWebsite.user_id == user_id)
+        .order_by(MonitoredWebsite.id.desc())
+        .all()
+    )
 
-    for row in data:
-        if not row["status"]:
-            row["status"] = "UNKNOWN"
+    data = []
+    for row in rows:
+        data.append({
+            "id":               row.id,
+            "website_name":     row.website_name,
+            "url":              row.url,
+            "interval_seconds": row.interval_seconds,
+            "status":           row.status if row.status else "UNKNOWN",
+            "checked_at":       row.checked_at,
+        })
 
-    cur.close()
-    conn.close()
     return data
 
+
 def get_status_history(name, user_id, limit=20):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    rows = (
+        WebsiteStatusLog.query
+        .filter_by(website_name=name, user_id=user_id)
+        .order_by(WebsiteStatusLog.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [r.new_status for r in rows]
 
-    cur.execute("""
-        SELECT new_status
-        FROM website_status_log
-        WHERE website_name=%s AND user_id=%s
-        ORDER BY id DESC
-        LIMIT %s
-    """, (name, user_id, limit))
-
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [r[0] for r in rows]
 
 def calculate_uptime_percentage(status_list):
     if not status_list:
@@ -269,91 +316,73 @@ def calculate_uptime_percentage(status_list):
     up_count = sum(1 for s in status_list if s == "UP")
     return round((up_count / len(status_list)) * 100, 2)
 
+
 # ======================================================
 # PARALLEL CHECK FUNCTION
 # ======================================================
 def check_single_website(site):
-    conn = mysql.connector.connect(**DB_CONFIG)
-    cur = conn.cursor()
+    """
+    Runs inside a thread — uses its own app context + db session.
+    """
+    with app.app_context():
+        name    = site["website_name"]
+        url     = site["url"]
+        user_id = site["user_id"]
 
-    name = site["website_name"]
-    url = site["url"]
-    user_id = site["user_id"]
+        try:
+            status = check_website(url)
+        except Exception:
+            status = "DOWN"
 
-    try:
-        status = check_website(url)
-    except:
-        status = "DOWN"
+        last_log = (
+            WebsiteStatusLog.query
+            .filter_by(website_name=name, user_id=user_id)
+            .order_by(WebsiteStatusLog.id.desc())
+            .first()
+        )
+        old_status = last_log.new_status if last_log else None
 
-    cur.execute("""
-        SELECT new_status
-        FROM website_status_log
-        WHERE website_name=%s AND user_id=%s
-        ORDER BY id DESC LIMIT 1
-    """, (name, user_id))
+        if old_status != status:
+            new_log = WebsiteStatusLog(
+                website_name = name,
+                old_status   = old_status,
+                new_status   = status,
+                checked_at   = datetime.utcnow(),
+                user_id      = user_id
+            )
+            db.session.add(new_log)
+            db.session.commit()
 
-    row = cur.fetchone()
-    old_status = row[0] if row else None
+            if status == "DOWN":
+                send_down_alert(name, url)
 
-    if old_status != status:
-        cur.execute("""
-            INSERT INTO website_status_log
-            (website_name, old_status, new_status, checked_at, user_id)
-            VALUES (%s,%s,%s,NOW(),%s)
-        """, (name, old_status, status, user_id))
-
-        if status == "DOWN":
-            send_down_alert(name, url)
-
-    conn.commit()
-    cur.close()
-    conn.close()
 
 def run_checks(websites):
     with ThreadPoolExecutor(max_workers=5) as executor:
         executor.map(check_single_website, websites)
 
-# ======================================================
-# MULTIPLE INTERVAL SUPPORT
-# ======================================================
-def setup_scheduler():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("SELECT DISTINCT interval_seconds FROM monitored_websites")
-    intervals = cur.fetchall()
-
-    cur.close()
-    conn.close()
-
-    for row in intervals:
-        interval = row[0]
-
-        scheduler.add_job(
-            lambda interval=interval: run_interval_job(interval),
-            'interval',
-            seconds=interval,
-            id=f"job_{interval}",
-            replace_existing=True
-        )
 
 def run_interval_job(interval):
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
+    with app.app_context():
+        sites = (
+            MonitoredWebsite.query
+            .filter_by(interval_seconds=interval)
+            .with_entities(
+                MonitoredWebsite.website_name,
+                MonitoredWebsite.url,
+                MonitoredWebsite.user_id
+            )
+            .all()
+        )
 
-    cur.execute("""
-        SELECT website_name, url, user_id
-        FROM monitored_websites
-        WHERE interval_seconds=%s
-    """, (interval,))
+        websites = [
+            {"website_name": s.website_name, "url": s.url, "user_id": s.user_id}
+            for s in sites
+        ]
 
-    websites = cur.fetchall()
+        if websites:
+            run_checks(websites)
 
-    cur.close()
-    conn.close()
-
-    if websites:
-        run_checks(websites)
 
 # ======================================================
 # DASHBOARD ROUTES
@@ -361,6 +390,7 @@ def run_interval_job(interval):
 @app.route("/")
 def home():
     return render_template("login.html")
+
 
 @app.route("/dashboard")
 @login_required
@@ -378,26 +408,25 @@ def dashboard():
         websites=websites,
         user=current_user
     )
+
+
 # ======================================================
 # UPTIME HISTORY
 # ======================================================
 @app.route("/uptime-history")
 @login_required
 def uptime_history():
-    user_id = current_user.id
+    user_id  = current_user.id
     websites = get_websites_by_user(user_id)
 
     any_down = False
 
     for site in websites:
-        statuses = get_status_history(
-            site["website_name"],
-            user_id
-        )
+        statuses = get_status_history(site["website_name"], user_id)
 
-        site["statuses"] = statuses
+        site["statuses"]       = statuses
         site["uptime_percent"] = calculate_uptime_percentage(statuses)
-        site["total_checks"] = len(statuses)
+        site["total_checks"]   = len(statuses)
 
         if statuses and statuses[0] == "DOWN":
             any_down = True
@@ -411,12 +440,13 @@ def uptime_history():
         last_updated=last_updated
     )
 
+
 @app.route("/add-website", methods=["POST"])
 @login_required
 def add_website():
-    name = request.form["name"]
-    url = request.form["url"]
-    interval = int(request.form["interval"])
+    name        = request.form["name"]
+    url         = request.form["url"]
+    interval    = int(request.form["interval"])
     search_text = request.form.get("search_text", "")
 
     # Server-side Validation
@@ -436,27 +466,25 @@ def add_website():
         flash("Invalid URL format. Use http:// or https://", "danger")
         return redirect("/dashboard")
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-
     try:
-        cur.execute("""
-            INSERT INTO monitored_websites
-            (website_name, url, interval_seconds, search_text, user_id)
-            VALUES (%s,%s,%s,%s,%s)
-        """, (name, url, interval, search_text, current_user.id))
+        new_site = MonitoredWebsite(
+            website_name     = name,
+            url              = url,
+            interval_seconds = interval,
+            search_text      = search_text,
+            user_id          = current_user.id
+        )
+        db.session.add(new_site)
+        db.session.commit()
 
-        conn.commit()
-
-    except mysql.connector.IntegrityError:
+    except Exception:
+        db.session.rollback()
         print("Duplicate website ignored")
-
-    cur.close()
-    conn.close()
 
     setup_scheduler()  # refresh intervals
 
     return redirect("/dashboard")
+
 
 @app.route("/delete-website/<name>")
 @login_required
@@ -464,27 +492,21 @@ def delete_website(name):
     if not name:
         return redirect("/dashboard")
 
-    conn = get_db_connection()
-    cur = conn.cursor()
+    # User-ownership enforced via user_id filter
+    WebsiteStatusLog.query.filter_by(
+        website_name=name, user_id=current_user.id
+    ).delete()
 
-    # User-ownership is enforced by user_id check in WHERE clause
-    cur.execute("""
-        DELETE FROM website_status_log
-        WHERE website_name=%s AND user_id=%s
-    """, (name, current_user.id))
+    MonitoredWebsite.query.filter_by(
+        website_name=name, user_id=current_user.id
+    ).delete()
 
-    cur.execute("""
-        DELETE FROM monitored_websites
-        WHERE website_name=%s AND user_id=%s
-    """, (name, current_user.id))
-
-    conn.commit()
-    cur.close()
-    conn.close()
+    db.session.commit()
 
     setup_scheduler()
 
     return redirect("/dashboard")
+
 
 # ======================================================
 # EMAIL ALERT
@@ -492,13 +514,38 @@ def delete_website(name):
 def send_down_alert(site_name, url):
     msg = EmailMessage()
     msg["Subject"] = f"🚨 Website DOWN Alert: {site_name}"
-    msg["From"] = SENDER_EMAIL
-    msg["To"] = RECEIVER_EMAIL
+    msg["From"]    = SENDER_EMAIL
+    msg["To"]      = RECEIVER_EMAIL
     msg.set_content(f"Website {site_name} is DOWN\nURL: {url}")
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(SENDER_EMAIL, APP_PASSWORD)
         smtp.send_message(msg)
+
+
+# ======================================================
+# SCHEDULER SETUP  (defined BEFORE first use above)
+# ======================================================
+def setup_scheduler():
+    """Remove old jobs and re-add one job per unique interval in the DB."""
+    with app.app_context():
+        for job in scheduler.get_jobs():
+            job.remove()
+
+        intervals = db.session.query(
+            MonitoredWebsite.interval_seconds
+        ).distinct().all()
+
+        for (interval,) in intervals:
+            scheduler.add_job(
+                func        = run_interval_job,
+                trigger     = "interval",
+                seconds     = interval,
+                args        = [interval],
+                id          = f"job_{interval}",
+                replace_existing = True
+            )
+
 
 # ======================================================
 # START SCHEDULER SAFELY
